@@ -418,26 +418,32 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'white',
   },
   content: {
     padding: 16,
+    backgroundColor: 'white',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 16,
     textAlign: 'center',
+    color: 'black',
   },
   label: {
     marginTop: 12,
     marginBottom: 4,
     fontWeight: '600',
+    color: 'black',
   },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
     borderRadius: 4,
     padding: 8,
+    backgroundColor: 'white',
+    color: 'black',
   },
   transcriptBox: {
     marginTop: 8,
@@ -446,6 +452,7 @@ const styles = StyleSheet.create({
     borderColor: '#ccc',
     borderRadius: 4,
     minHeight: 120,
+    backgroundColor: 'white',
   },
   meterContainer: {
     height: 8,
@@ -469,6 +476,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    backgroundColor: 'white',
   },
   transcriptItemTranslating: {
     backgroundColor: '#f0f0f0',
@@ -499,6 +507,7 @@ const styles = StyleSheet.create({
   },
   transcriptText: {
     fontSize: 16,
+    color: 'black',
   },
   translatedText: {
     color: '#4caf50',

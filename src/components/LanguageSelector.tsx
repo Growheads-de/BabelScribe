@@ -30,10 +30,16 @@ const LanguageSelector: React.FC<Props> = ({ languages, selected, onChange }) =>
 const styles = StyleSheet.create({
   container: {
     marginVertical: 16,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 4,
   },
   picker: {
     height: 50,
     width: '100%',
+    backgroundColor: 'white',
+    color: 'black',
   },
 });
 

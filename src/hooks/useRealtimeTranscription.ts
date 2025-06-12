@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import AudioRecord from 'react-native-audio-record';
 import { Buffer } from 'buffer';
 import { franc } from 'franc';
+import KeepAwake from 'react-native-keep-awake';
 
 export interface Transcript {
   id: string;
@@ -473,6 +474,11 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
     log('Stopping audio capture. Committing...');
     AudioRecord.stop();
     setRecording(false);
+    
+    // Deactivate keep awake when stopping recording
+    KeepAwake.deactivate();
+    log('Keep awake deactivated - device can sleep again');
+    
     commit(); // This also clears the auto-commit timer
   }, [isRecording, commit]);
 
@@ -484,6 +490,11 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
       log('Resuming audio capture on existing WebSocket connection.');
       setHasSentAudio(false); // Reset for the new utterance
       setRecording(true);
+      
+      // Activate keep awake when resuming recording
+      KeepAwake.activate();
+      log('Keep awake activated - device will not sleep during recording');
+      
       AudioRecord.start();
       startAutoCommitTimer();
       return;
@@ -535,6 +546,11 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
       );
 
       setRecording(true);
+      
+      // Activate keep awake when starting new recording session
+      KeepAwake.activate();
+      log('Keep awake activated - device will not sleep during recording');
+      
       AudioRecord.start();
       startAutoCommitTimer(); // Start the timer when recording begins
     };
@@ -623,6 +639,11 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
     ws.onclose = (ev) => {
       log('WS closed', ev.code, ev.reason);
       setRecording(false);
+      
+      // Deactivate keep awake when WebSocket closes
+      KeepAwake.deactivate();
+      log('Keep awake deactivated - WebSocket connection closed');
+      
       wsRef.current = null; // Nullify the ref
       if (commitTimeoutRef.current) {
         clearTimeout(commitTimeoutRef.current);
@@ -689,6 +710,10 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
       clearCountdown();
       wsRef.current?.close();
       AudioRecord.stop();
+      
+      // Ensure keep awake is deactivated on cleanup
+      KeepAwake.deactivate();
+      log('Keep awake deactivated during cleanup');
     };
   }, [clearCountdown]);
 
