@@ -5,6 +5,12 @@ import { Buffer } from 'buffer';
 import { franc } from 'franc';
 import KeepAwake from 'react-native-keep-awake';
 
+export interface TokenLogprob {
+  token: string;
+  logprob: number;
+  bytes?: number[] | null;
+}
+
 export interface Transcript {
   id: string;
   timestamp: Date;
@@ -12,6 +18,7 @@ export interface Transcript {
   originalText?: string; // Store original text for multiple translations
   detectedLanguage?: string; // ISO language code detected by franc
   detectedLanguageName?: string; // Human readable language name
+  logprobs?: TokenLogprob[]; // Token-level confidence scores
 }
 
 interface Options {
@@ -37,6 +44,17 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
   const isRecordingRef = useRef<boolean>(false);
   // Helper to log with consistent prefix
   const log = (...args: any[]) => console.log('[Realtime]', ...args);
+  
+  // Debug helper to track logprobs flow
+  const debugLogprobs = () => {
+    log('=== LOGPROBS DEBUG INFO ===');
+    log('1. Check if session config includes logprobs request');
+    log('2. Check if WebSocket receives logprobs in response');
+    log('3. Check if transcript is created with logprobs');
+    log('4. Check if ColoredTranscript component receives logprobs');
+    log('5. Check console for [ColoredTranscript] logs');
+    log('===========================');
+  };
 
   // Helper to convert ISO language codes to readable names
   const getLanguageName = useCallback((isoCode: string): string => {
@@ -231,7 +249,9 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
               ? { 
                   ...item, 
                   text: `${translatedText} (${targetLangName})`,
-                  originalText: item.originalText || item.text
+                  originalText: item.originalText || item.text,
+                  // Preserve logprobs from original transcription
+                  logprobs: item.logprobs
                 }
               : item
           )
@@ -502,18 +522,23 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
 
     // New session, clear old transcripts.
     log('Starting new recording session...');
+    debugLogprobs(); // Show debug info for logprobs tracking
     setFinalTranscripts([]);
     setInterimTranscript('');
     setHasSentAudio(false); // Reset for the new session
 
     const sampleRate = 16000;
 
-    // Configure audio
+    // Configure audio with optimized settings for higher volume
     AudioRecord.init({
       sampleRate,
       channels: 1,
       bitsPerSample: 16,
-      audioSource: 6,
+      audioSource: 1, // MIC (1) - Raw microphone input, often higher gain than VOICE_RECOGNITION (6)
+      // Alternative sources to try if still too quiet:
+      // audioSource: 7, // VOICE_COMMUNICATION - optimized for VoIP
+      // audioSource: 5, // CAMCORDER - tuned for video recording
+      // audioSource: 0, // DEFAULT - system default
       wavFile: '',
     });
 
@@ -528,22 +553,21 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
     ws.onopen = () => {
       log('WebSocket open');
       // Update session with desired model & language
-      ws.send(
-        JSON.stringify({
-          type: 'transcription_session.update',
-          session: {
-            input_audio_transcription: {
-              model
-            },
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 800,
-            },
+      const sessionConfig = {
+        type: 'transcription_session.update',
+        session: {
+          input_audio_transcription: {
+            model
           },
-        })
-      );
+          turn_detection: null,
+          include: [
+            "item.input_audio_transcription.logprobs"
+          ]
+        }
+      };
+      
+      log('Sending session config:', JSON.stringify(sessionConfig, null, 2));
+      ws.send(JSON.stringify(sessionConfig));
 
       setRecording(true);
       
@@ -559,7 +583,10 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
       log('WS message received', e.data);
       try {
         const data = JSON.parse(e.data);
-        // log('Parsed WS message', data);
+        log('Parsed WS message type:', data.type);
+        if (data.type === 'conversation.item.input_audio_transcription.completed') {
+          log('Full transcription completed message:', JSON.stringify(data, null, 2));
+        }
         switch (data.type) {
           case 'conversation.item.input_audio_transcription.delta':
             if (data.delta) {
@@ -580,6 +607,76 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
               log('Language detected:', detectedLangCode, '->', detectedLangName);
               log('Current languageA:', languageA, 'languageB:', languageB);
               
+              // Extract logprobs if available - try different possible locations
+              log('Checking for logprobs in data...');
+              log('data.logprobs exists:', !!data.logprobs);
+              log('data.input_audio_transcription exists:', !!data.input_audio_transcription);
+              log('All data keys:', Object.keys(data));
+              
+              // Log the raw structure to understand the API response better
+              if (data.logprobs) {
+                log('data.logprobs structure:', JSON.stringify(data.logprobs, null, 2));
+              }
+              if (data.input_audio_transcription) {
+                log('data.input_audio_transcription structure:', JSON.stringify(data.input_audio_transcription, null, 2));
+              }
+              
+              let logprobs: TokenLogprob[] | undefined;
+              
+              // Try different possible locations for logprobs
+              if (data.logprobs && Array.isArray(data.logprobs)) {
+                // Direct array format: data.logprobs = [{token, logprob, bytes}, ...]
+                log('Found logprobs as direct array with length:', data.logprobs.length);
+                logprobs = data.logprobs.map((item: any, index: number) => {
+                  log(`Token ${index}:`, item);
+                  return {
+                    token: item.token,
+                    logprob: item.logprob,
+                    bytes: item.bytes || null
+                  };
+                });
+                log('Extracted logprobs from data.logprobs array:', JSON.stringify(logprobs, null, 2));
+              } else if (data.logprobs && data.logprobs.content) {
+                // Wrapped format: data.logprobs.content = [{token, logprob, bytes}, ...]
+                log('Found logprobs.content with length:', data.logprobs.content.length);
+                logprobs = data.logprobs.content.map((item: any, index: number) => {
+                  log(`Token ${index}:`, item);
+                  return {
+                    token: item.token,
+                    logprob: item.logprob,
+                    bytes: item.bytes || null
+                  };
+                });
+                log('Extracted logprobs from data.logprobs.content:', JSON.stringify(logprobs, null, 2));
+              } else if (data.input_audio_transcription && data.input_audio_transcription.logprobs) {
+                log('Found input_audio_transcription.logprobs');
+                const transcriptionLogprobs = data.input_audio_transcription.logprobs;
+                if (Array.isArray(transcriptionLogprobs)) {
+                  logprobs = transcriptionLogprobs.map((item: any, index: number) => {
+                    log(`Token ${index}:`, item);
+                    return {
+                      token: item.token,
+                      logprob: item.logprob,
+                      bytes: item.bytes || null
+                    };
+                  });
+                  log('Extracted logprobs from input_audio_transcription.logprobs array:', JSON.stringify(logprobs, null, 2));
+                } else if (transcriptionLogprobs.content) {
+                  logprobs = transcriptionLogprobs.content.map((item: any, index: number) => {
+                    log(`Token ${index}:`, item);
+                    return {
+                      token: item.token,
+                      logprob: item.logprob,
+                      bytes: item.bytes || null
+                    };
+                  });
+                  log('Extracted logprobs from input_audio_transcription.logprobs.content:', JSON.stringify(logprobs, null, 2));
+                }
+              } else {
+                log('No logprobs found in any expected location');
+                log('Tried: data.logprobs (array), data.logprobs.content, and data.input_audio_transcription.logprobs');
+              }
+              
               const transcriptId = `${Date.now()}-${Math.random()}`;
               const newTranscript: Transcript = {
                 id: transcriptId,
@@ -587,8 +684,15 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
                 text: data.transcript.trim(),
                 detectedLanguage: detectedLangCode,
                 detectedLanguageName: detectedLangName,
+                logprobs: logprobs,
                 // Don't set originalText here since this is the original
               };
+              
+              log('Created transcript with:');
+              log('- text:', newTranscript.text);
+              log('- logprobs count:', newTranscript.logprobs?.length || 0);
+              log('- transcript object:', JSON.stringify(newTranscript, null, 2));
+              
               setFinalTranscripts((prev) => [newTranscript, ...prev]);
               setInterimTranscript('');
               
@@ -657,8 +761,21 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
     AudioRecord.on('data', (chunk: string) => {
       // chunk is base64-encoded 16-bit PCM mono @ sampleRate Hz
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      // Calculate RMS level for UI meter
+      
+      // Decode audio data
       const bytes = Buffer.from(chunk, 'base64');
+      
+      // Optional: Apply software gain amplification if needed
+      // Uncomment and adjust gain factor (1.5 = 50% louder, 2.0 = 100% louder)
+       const gainFactor = 1.5;
+       for (let i = 0; i < bytes.length; i += 2) {
+         let sample = bytes.readInt16LE(i);
+         sample = Math.min(Math.max(sample * gainFactor, -32768), 32767); // Clamp to prevent clipping
+         bytes.writeInt16LE(sample, i);
+       }
+       const amplifiedChunk = bytes.toString('base64');
+      
+      // Calculate RMS level for UI meter
       const sampleCount = Math.min(bytes.length / 2, 2048); // analyse first ~2k samples
       let sumSq = 0;
       for (let i = 0; i < sampleCount; i++) {
@@ -666,12 +783,14 @@ export default function useRealtimeTranscription({ language, apiKey, model, lang
         sumSq += sample * sample;
       }
       const rms = Math.sqrt(sumSq / sampleCount);
-      setVolume(rms / 32768);
+      if(chunkCounter % 4 === 0) {
+        setVolume(rms / 32768);
+      }
 
       wsRef.current.send(
         JSON.stringify({
           type: 'input_audio_buffer.append',
-          audio: chunk,
+          audio: amplifiedChunk, // Use amplifiedChunk if applying software gain
         })
       );
       setHasSentAudio(true); // Mark that we've sent audio

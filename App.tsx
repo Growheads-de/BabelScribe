@@ -27,6 +27,7 @@ import { LANGUAGES } from './src/constants/languages';
 import useRealtimeTranscription, {
   Transcript,
 } from './src/hooks/useRealtimeTranscription';
+import ColoredTranscript from './src/components/ColoredTranscript';
 
 const MODELS = [
   { label: 'GPT-4o Mini', value: 'gpt-4o-mini-transcribe' },
@@ -41,7 +42,7 @@ const LANGUAGE_B_STORAGE_KEY = 'language_b';
 
 export default function App() {
   const [apiKey, setApiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gpt-4o-mini-transcribe');
+  const [selectedModel, setSelectedModel] = useState('whisper-1');
   const [languageA, setLanguageA] = useState('de'); // German default
   const [languageB, setLanguageB] = useState('en'); // English default
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
@@ -99,6 +100,7 @@ export default function App() {
   // Save API key when it changes
   useEffect(() => {
     if (apiKey) {
+      
       AsyncStorage.setItem(API_KEY_STORAGE_KEY, apiKey).catch((error) =>
         console.error('Failed to save API key:', error)
       );
@@ -273,16 +275,39 @@ export default function App() {
         
         <View style={styles.transcriptContent}>
           <View style={styles.transcriptTextContainer}>
-            <Text style={[
-              styles.transcriptText,
-              isTranslated && styles.translatedText,
-            ]}>
-              {isTranslating ? 'Translating...' : item.text}
-            </Text>
-            {item.originalText && (
-              <Text style={styles.originalText}>
-                Original: {item.originalText}
+            {isTranslating ? (
+              <Text style={[
+                styles.transcriptText,
+                styles.translatedText,
+              ]}>
+                Translating...
               </Text>
+            ) : (
+              <>
+                {/* Show translated text (if it exists) without logprobs */}
+                {item.originalText ? (
+                  <Text style={[styles.transcriptText, styles.translatedText]}>
+                    {item.text}
+                  </Text>
+                ) : (
+                  /* Show original text with logprobs */
+                  <ColoredTranscript
+                    text={item.text}
+                    logprobs={item.logprobs}
+                  />
+                )}
+                
+                {/* Show original text with logprobs when translation exists */}
+                {item.originalText && (
+                  <View style={styles.originalWithLogprobs}>
+                    <Text style={styles.originalLabel}>Original: </Text>
+                    <ColoredTranscript
+                      text={item.originalText}
+                      logprobs={item.logprobs}
+                    />
+                  </View>
+                )}
+              </>
             )}
           </View>
           
@@ -319,35 +344,39 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>BabelScribe</Text>
 
-        <Text style={styles.label}>OpenAI API Key</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="sk-..."
-          secureTextEntry
-          value={apiKey}
-          onChangeText={setApiKey}
-        />
+        {!isRecording && (
+          <>
+            <Text style={styles.label}>OpenAI API Key</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="sk-..."
+              secureTextEntry
+              value={apiKey}
+              onChangeText={setApiKey}
+            />
 
-        <Text style={styles.label}>Model</Text>
-        <LanguageSelector
-          languages={MODELS}
-          selected={selectedModel}
-          onChange={setSelectedModel}
-        />
+            <Text style={styles.label}>Model</Text>
+            <LanguageSelector
+              languages={MODELS}
+              selected={selectedModel}
+              onChange={setSelectedModel}
+            />
 
-        <Text style={styles.label}>Language A (Blue Button)</Text>
-        <LanguageSelector
-          languages={LANGUAGES}
-          selected={languageA}
-          onChange={setLanguageA}
-        />
+            <Text style={styles.label}>Language A (Blue Button)</Text>
+            <LanguageSelector
+              languages={LANGUAGES}
+              selected={languageA}
+              onChange={setLanguageA}
+            />
 
-        <Text style={styles.label}>Language B (Orange Button)</Text>
-        <LanguageSelector
-          languages={LANGUAGES}
-          selected={languageB}
-          onChange={setLanguageB}
-        />
+            <Text style={styles.label}>Language B (Orange Button)</Text>
+            <LanguageSelector
+              languages={LANGUAGES}
+              selected={languageB}
+              onChange={setLanguageB}
+            />
+          </>
+        )}
 
         <View style={styles.meterContainer}>
           <View
@@ -379,6 +408,16 @@ export default function App() {
         </View>
 
         <Text style={styles.label}>Transcript</Text>
+        
+        {/* Confidence Legend */}
+        <View style={styles.confidenceLegend}>
+          <Text style={styles.legendTitle}>Confidence: </Text>
+          <View style={styles.legendItems}>
+            <Text style={[styles.legendItem, { color: '#22c55e' }]}>High</Text>
+            <Text style={[styles.legendItem, { color: '#eab308' }]}>Med</Text>
+            <Text style={[styles.legendItem, { color: '#ef4444' }]}>Low</Text>
+          </View>
+        </View>
         
         {/* Transcript action buttons */}
         {finalTranscripts.length > 0 && (
@@ -611,5 +650,35 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  confidenceLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  legendTitle: {
+    fontSize: 12,
+    color: '#666',
+    marginRight: 8,
+  },
+  legendItems: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  legendItem: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  originalWithLogprobs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  originalLabel: {
+    color: '#999',
+    fontStyle: 'italic',
+    fontSize: 14,
   },
 });
